@@ -17,6 +17,39 @@ def status_local(row):
     return row["acq_utc"].tz_convert(tz).strftime("%d %b %Y, %H:%M") + (" WIB" if tz.endswith("Jakarta") else " WITA")
 
 
+def balanced_map_sample(points: pd.DataFrame, limit: int = 2400) -> pd.DataFrame:
+    """Deterministic display sample; high-confidence records are retained first.
+
+    Remaining capacity is distributed among province/satellite strata, then
+    randomly filled. Map points are NOT the statistical universe.
+    """
+    if len(points) <= limit:
+        return points.copy()
+    high = points[points["confidence_group"] == "Tinggi"]
+    if len(high) >= limit:
+        pool = high
+        capacity = limit
+        already = points.iloc[:0]
+    else:
+        pool = points[points["confidence_group"] != "Tinggi"]
+        capacity = limit - len(high)
+        already = high
+    if capacity == 0:
+        return already.copy()
+    sampled = []
+    groups = list(pool.groupby(["province", "source_name"], sort=True, dropna=False))
+    quota = min(40, max(1, capacity // max(1, len(groups)*3)))
+    for i, (_key, group) in enumerate(groups):
+        sampled.append(group.sample(n=min(quota,len(group)),random_state=20261014+i))
+    foundation = pd.concat(sampled, ignore_index=False) if sampled else pool.iloc[:0]
+    remaining_slots = capacity-len(foundation)
+    if remaining_slots>0:
+        remaining = pool.drop(index=foundation.index)
+        if len(remaining):
+            foundation = pd.concat([foundation, remaining.sample(n=min(remaining_slots,len(remaining)),random_state=20261014)],axis=0)
+    return pd.concat([already, foundation],ignore_index=True)
+
+
 def make_map(points: pd.DataFrame, clusters: pd.DataFrame, shapes: dict | None,
              show_points: bool, show_heat: bool, show_clusters: bool, mode: str):
     m = folium.Map(location=[-0.1, 114.2], zoom_start=6, tiles="CartoDB positron", control_scale=True,
@@ -36,13 +69,7 @@ def make_map(points: pd.DataFrame, clusters: pd.DataFrame, shapes: dict | None,
     rendered = min(len(points), 2400)
     if show_points and not points.empty:
         marker_layer = folium.FeatureGroup(name="Lokasi deteksi (dapat diklik)", show=True)
-        if len(points) <= 2400:
-            displayed = points
-        else:
-            latest = points.sort_values("acq_utc", ascending=False).head(700)
-            rest = points.loc[~points.index.isin(latest.index)]
-            other = rest.sample(n=min(1700, len(rest)), random_state=20261014)
-            displayed = pd.concat([latest, other], ignore_index=True)
+        displayed = balanced_map_sample(points, limit=2400)
         colors = {"Tinggi": "#DC2626", "Nominal": "#F59E0B", "Rendah": "#0EA5E9", "Tidak tersedia": "#64748B"}
         for _, row in displayed.iterrows():
             col = colors.get(row["confidence_group"], "#64748B")
@@ -69,11 +96,13 @@ def make_map(points: pd.DataFrame, clusters: pd.DataFrame, shapes: dict | None,
                          f"Hari pengamatan (UTC): {int(cl.days_utc)}<br>"
                          f"Sensor: {int(cl.sensors)}<br>"
                          f"Deteksi high: {int(cl.high_confidence_records)}<br>"
-                         "Bukan perimeter kebakaran atau prioritas darurat terverifikasi")
+                         f"Bentang titik perkiraan: {float(cl.extent_km_approx):.1f} km<br>"
+                         "DBSCAN eps bukan radius api; bukan perimeter kebakaran")
+            # Constant-sized centroids: marker size must not mimic fire footprint.
             folium.CircleMarker(location=[cl.latitude, cl.longitude],
-                                radius=min(25, 7 + math.sqrt(float(cl.detections))),
-                                color="#7C3AED", weight=2, fill=True, fill_color="#7C3AED",
-                                fill_opacity=.22, popup=folium.Popup(popup_txt, max_width=270)).add_to(cluster_layer)
+                                radius=5, color="#6D28D9", weight=1, fill=True,
+                                fill_color="#7C3AED", fill_opacity=.55,
+                                popup=folium.Popup(popup_txt, max_width=290)).add_to(cluster_layer)
         cluster_layer.add_to(m)
     Fullscreen(position="topright").add_to(m)
     MiniMap(toggle_display=True, position="bottomright").add_to(m)

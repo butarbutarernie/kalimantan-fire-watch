@@ -20,6 +20,8 @@ from shapely.geometry import Point, shape, mapping
 from shapely.ops import unary_union
 from shapely.prepared import prep
 from sklearn.cluster import DBSCAN
+from scipy.spatial import ConvexHull
+from scipy.spatial.distance import pdist
 
 FIRMS_ROOT = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
 GEOBOUNDARIES_META = "https://www.geoboundaries.org/api/current/gbOpen/IDN/ADM1/"
@@ -313,31 +315,73 @@ def temporal_filter(data: pd.DataFrame, hours: int, now: datetime | None = None)
     return data.loc[(data["acq_utc"] >= threshold) & (data["acq_utc"] <= pd.Timestamp(now) + pd.Timedelta(hours=1))].copy()
 
 
+def approx_cluster_extent_km(subset: pd.DataFrame) -> float:
+    """Approximate maximum point-to-point span; not a fire perimeter or area.
+
+    A local, equirectangular projection is accurate enough for an exploratory
+    cluster-extent warning at Kalimantan latitudes. The maximum separation is
+    attained at convex-hull vertices; this avoids a full N-by-N distance matrix.
+    """
+    if len(subset) < 2:
+        return 0.0
+    lat = subset["latitude"].to_numpy(dtype=float)
+    lon = subset["longitude"].to_numpy(dtype=float)
+    mid_lat = float(lat.mean())
+    xy = np.column_stack((lon * 111.2 * math.cos(math.radians(mid_lat)), lat * 111.2))
+    if len(subset) > 3:
+        try:
+            xy = xy[ConvexHull(xy).vertices]
+        except Exception:
+            pass
+    return round(float(pdist(xy, metric="euclidean").max()) if len(xy)>1 else 0.0, 2)
+
+
 def cluster_detections(data: pd.DataFrame, eps_km: float = 2.0,
                        min_records: int = 3) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """DBSCAN spatial grouping. Not a forecast, incident count or automated field order."""
+    """Exploratory DBSCAN independently within each province.
+
+    This prevents clusters from merging across province boundaries. DBSCAN
+    epsilon is a neighbor distance, never a maximum cluster extent.
+    """
     records = data.copy().reset_index(drop=True)
     records["cluster_id"] = -1
     columns = ["cluster_id", "province", "latitude", "longitude", "detections",
                "sensors", "high_confidence_records", "days_utc", "max_frp_mw",
-               "first_seen_utc", "last_seen_utc", "span_hours", "screening_flag"]
+               "first_seen_utc", "last_seen_utc", "span_hours", "extent_km_approx",
+               "screening_flag"]
     if records.empty or len(records) < min_records:
         return records, pd.DataFrame(columns=columns)
-    coords_rad = np.radians(records[["latitude", "longitude"]].astype(float).values)
-    db = DBSCAN(eps=eps_km / 6371.0088, min_samples=min_records, metric="haversine",
-                algorithm="ball_tree")
-    records["cluster_id"] = db.fit_predict(coords_rad)
+    next_id = 0
+    groups = (records.groupby("province", sort=False, dropna=False)
+              if "province" in records else [("-", records)])
+    for province, group in groups:
+        if len(group) < min_records:
+            continue
+        coords_rad = np.radians(group[["latitude", "longitude"]].astype(float).values)
+        labels = DBSCAN(eps=eps_km / 6371.0088, min_samples=min_records,
+                        metric="haversine", algorithm="ball_tree").fit_predict(coords_rad)
+        valid_ids = sorted(set(labels) - {-1})
+        for original_id in valid_ids:
+            records.loc[group.index[labels == original_id], "cluster_id"] = next_id
+            next_id += 1
     reports = []
     for label, subset in records.loc[records.cluster_id >= 0].groupby("cluster_id"):
         latest = subset.acq_utc.max()
         first = subset.acq_utc.min()
         unique_days = subset.acq_utc.dt.strftime("%Y-%m-%d").nunique()
         high = int((subset.confidence_group == "Tinggi").sum())
-        # Screening signal, NOT scientifically validated wildfire severity.
-        flag = "Tinjau ulang deteksi berulang" if unique_days > 1 or high > 0 else "Klaster spasial eksploratif"
+        extent = approx_cluster_extent_km(subset)
+        if extent > 10:
+            flag = "Audit penggabungan DBSCAN: bentang >10 km"
+        elif unique_days > 1:
+            flag = "Tinjau ulang deteksi berulang"
+        elif high > 0:
+            flag = "Memuat deteksi confidence tinggi"
+        else:
+            flag = "Klaster spasial eksploratif"
         reports.append({
             "cluster_id": int(label),
-            "province": subset.province.mode().iloc[0] if "province" in subset and not subset.province.mode().empty else "-",
+            "province": subset.province.iloc[0] if "province" in subset else "-",
             "latitude": round(float(subset.latitude.mean()), 5),
             "longitude": round(float(subset.longitude.mean()), 5),
             "detections": int(len(subset)),
@@ -348,11 +392,13 @@ def cluster_detections(data: pd.DataFrame, eps_km: float = 2.0,
             "first_seen_utc": first,
             "last_seen_utc": latest,
             "span_hours": round((latest - first).total_seconds() / 3600, 1),
+            "extent_km_approx": extent,
             "screening_flag": flag,
         })
     out = pd.DataFrame(reports, columns=columns)
     if not out.empty:
-        out = out.sort_values(["detections", "last_seen_utc"], ascending=[False, False]).reset_index(drop=True)
+        out = out.sort_values(["detections", "last_seen_utc"],
+                              ascending=[False, False]).reset_index(drop=True)
     return records, out
 
 

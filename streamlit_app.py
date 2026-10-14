@@ -99,7 +99,7 @@ def read_user_firms_csv(file) -> pd.DataFrame:
 # ----------------------------------------------------------------------
 st.markdown("""
 <div class="hero">
-  <div class="hero-kicker">OPEN SATELLITE DATA · KALIMANTAN · RESEARCH PROTOTYPE V1.0</div>
+  <div class="hero-kicker">OPEN SATELLITE DATA · KALIMANTAN · RESEARCH PROTOTYPE V1.1</div>
   <div class="hero-title">Kalimantan Fire Watch <span style="color:#FFB767">/ Active Fire Monitoring</span></div>
   <div class="hero-subtitle">Dashboard interaktif deteksi anomali termal VIIRS (NASA FIRMS). 
   Analisis sebaran, pola temporal, dan klaster spasial untuk <i>screening</i> kandidat verifikasi — bukan laporan insiden terkonfirmasi.</div>
@@ -236,7 +236,7 @@ with st.sidebar:
     st.subheader("Peta")
     show_individual = st.checkbox("Tampilkan titik terdeteksi", True)
     show_heat = st.checkbox("Heatmap kepadatan", False)
-    show_clusters = st.checkbox("Klaster DBSCAN", True)
+    show_clusters = st.checkbox("Klaster DBSCAN (opsional)", False)
     eps_km = st.slider("Jarak DBSCAN (km)", min_value=0.5, max_value=5.0,
                        value=2.0, step=0.5, help="Eksploratif; jarak pengelompokan, bukan radius api.")
     min_records = st.slider("Minimum rekaman per klaster", 2, 10, value=3)
@@ -278,6 +278,12 @@ c2.metric("Deteksi confidence tinggi", f"{(filtered.confidence_group == 'Tinggi'
 c3.metric("Klaster eksploratif", f"{len(clusters):,}", help="DBSCAN spasial; satu klaster tidak harus satu kejadian kebakaran.")
 c4.metric("Usia observasi terbaru", describe_age(max(0, newest_age)),
           help="Selisih antara waktu UTC sekarang dan akuisisi terbaru. BUKAN latency penerbitan API.")
+if not clusters.empty:
+    large_count = int((clusters.extent_km_approx > 10).sum())
+    if large_count:
+        st.info(f"QC klaster: {large_count:,} kelompok mempunyai bentang titik lebih dari 10 km. "
+                "Parameter DBSCAN 2 km adalah jarak antartetangga, bukan diameter kelompok. "
+                "Kelompok besar perlu ditinjau sebelum digunakan sebagai lokasi verifikasi.")
 
 st.markdown("<div class='note'><b>Interpretasi:</b> titik adalah anomali termal terdeteksi satelit, bukan kejadian kebakaran yang sudah diverifikasi. Sensor berbeda dapat mendeteksi peristiwa yang sama. Ketiadaan hotspot tidak menjamin ketiadaan kebakaran. Klaster hanya membantu penapisan kandidat verifikasi.</div>", unsafe_allow_html=True)
 
@@ -289,8 +295,10 @@ with map_tab:
     st.subheader("Sebaran deteksi pada lima provinsi Kalimantan")
     fire_map, plotted = make_map(annotated, clusters, shapes, show_individual, show_heat, show_clusters, mode_tag)
     st_folium(fire_map, height=560, use_container_width=True, returned_objects=[], key="fire-map")
-    st.caption(f"Peta menampilkan {(min(len(annotated), 2400) if show_individual else 0):,} dari {len(annotated):,} rekaman sebagai titik (dibatasi demi performa). "
-               "Statistik dan unduhan memakai seluruh rekaman tersaring. Ungu = klaster eksploratif; merah = confidence tinggi; jingga = nominal; biru = rendah.")
+    st.caption(f"Peta menampilkan {(min(len(annotated), 2400) if show_individual else 0):,} dari {len(annotated):,} rekaman sebagai titik "
+               "(confidence tinggi dipertahankan lebih dulu; sisanya sampel per provinsi/satelit). "
+               "Statistik dan unduhan memakai SEMUA rekaman tersaring. "
+               "Ungu = pusat klaster (BUKAN radius kebakaran); merah = confidence tinggi; jingga = nominal; biru = rendah.")
     st.caption("Peta administratif: geoBoundaries gbOpen CC-BY 4.0 (jika tersedia), bukan batas hukum resmi. Basemap: © OpenStreetMap contributors / CARTO.")
     with st.expander("Lihat 100 rekaman terbaru dengan waktu lokal"):
         cols = ["province", "acq_utc", "source_name", "confidence_group", "frp", "latitude", "longitude"]
@@ -337,13 +345,14 @@ with trend_tab:
 
 with cluster_tab:
     st.subheader("Kandidat verifikasi berbasis pengelompokan spasial")
-    st.write(f"Algoritme DBSCAN Haversine · jarak maksimum {eps_km:.1f} km · minimum {min_records} catatan. "
-             "Klaster dibentuk hanya oleh jarak geografis, bukan prediksi penyebaran api.")
+    st.write(f"Algoritme DBSCAN Haversine per provinsi · jarak tetangga {eps_km:.1f} km · minimum {min_records} catatan. "
+             "Jarak tetangga bukan diameter maksimum kelompok; klaster bukan prediksi penyebaran api.")
     if clusters.empty:
         st.info("Tidak ada klaster yang memenuhi parameter. Deteksi tunggal tetap bisa penting dan tidak boleh dianggap aman.")
     else:
         screening_counts = clusters.screening_flag.value_counts()
-        st.caption("Tanda 'Tinjau ulang deteksi berulang' berlaku bila ada confidence tinggi atau deteksi di beberapa hari UTC; bukan penilaian resmi keparahan kebakaran.")
+        st.caption("Penanda dibedakan antara deteksi lintas-hari, keberadaan confidence tinggi, dan bentang klaster >10 km. "
+                   "Ini adalah QC/penapisan, bukan peringkat resmi keparahan kebakaran.")
         out = clusters.copy()
         for col in ["first_seen_utc", "last_seen_utc"]:
             out[col] = out[col].dt.strftime("%Y-%m-%d %H:%M UTC")
@@ -351,7 +360,7 @@ with cluster_tab:
             "cluster_id":"ID", "province":"Provinsi", "latitude":"Lat pusat", "longitude":"Lon pusat",
             "detections":"Rekaman", "sensors":"Sensor", "high_confidence_records":"Conf. tinggi",
             "days_utc":"Hari berbeda", "max_frp_mw":"FRP maks. (MW)", "first_seen_utc":"Pertama",
-            "last_seen_utc":"Terakhir", "span_hours":"Rentang jam", "screening_flag":"Catatan penapisan",
+            "last_seen_utc":"Terakhir", "span_hours":"Rentang jam", "extent_km_approx":"Bentang titik (km)", "screening_flag":"Catatan penapisan",
         }), hide_index=True, use_container_width=True)
     st.markdown("""**Panduan tindak lanjut yang aman**
 
@@ -364,7 +373,7 @@ with cluster_tab:
 with export_tab:
     st.subheader("Ekspor data dan audit ilmiah")
     manifest = {
-        "dashboard": "Kalimantan Fire Watch v1.0",
+        "dashboard": "Kalimantan Fire Watch v1.1",
         "mode": mode_tag,
         "analysis_at_utc": now_utc.isoformat(),
         "api_download_at_utc": retrieved_utc,
@@ -378,6 +387,8 @@ with export_tab:
         "detections_after_filter": int(len(annotated)),
         "high_confidence_records": int((annotated.confidence_group == "Tinggi").sum()),
         "exploratory_clusters": int(len(clusters)),
+        "clusters_extent_over_10km": int((clusters.extent_km_approx > 10).sum()) if len(clusters) else 0,
+        "cluster_method": "province-stratified spatial DBSCAN, without temporal constraint",
         "dbscan_radius_km": eps_km,
         "dbscan_min_records": min_records,
         "sensor_errors_or_warnings": failures,
@@ -410,10 +421,10 @@ with export_tab:
 - **Kualitas:** pemeriksaan koordinat, timestamp UTC, rekaman duplikat identik dalam sensor sama, serta penyaringan polygon administratif.
 - **Interpretasi:** satu baris ialah rekaman deteksi anomali termal satelit; bukan satu kebakaran yang dikonfirmasi.
 - **Ketidakpastian:** cakupan awan, waktu lintasan, keterlambatan distribusi, resolusi sensor, dan duplikasi lintas satelit dapat memengaruhi hitungan.
-- **Klaster:** DBSCAN Haversine dengan ambang yang dapat disetel, belum divalidasi terhadap data insiden independen.
+- **Klaster:** DBSCAN Haversine dihitung terpisah untuk tiap provinsi; ambang merupakan jarak tetangga, bukan diameter/radius api. Tidak mempertimbangkan waktu secara langsung dan belum divalidasi dengan insiden independen. Kelompok berdiameter >10 km diberi penanda audit.
 - **Tidak tersedia dalam versi ini:** prakiraan arah api, delineasi burn scar/hektare terbakar, indeks cuaca kebakaran, status peristiwa terkonfirmasi, sistem alarm otomatis, serta pengiriman tugas lapangan.
 - **Penggunaan:** kajian situasional dan screening lokasi untuk verifikasi oleh instansi berwenang; bukan sumber tunggal keputusan keselamatan jiwa/properti.
 """)
 
 st.divider()
-st.caption("Made for open-data research and rapid situational awareness · NASA FIRMS (active-fire/thermal anomalies) · geoBoundaries gbOpen CC BY 4.0 · © OSM contributors / CARTO for map tiles · Prototype 2026-10-14")
+st.caption("Made for open-data research and rapid situational awareness · NASA FIRMS (active-fire/thermal anomalies) · geoBoundaries gbOpen CC BY 4.0 · © OSM contributors / CARTO for map tiles · Prototype v1.1 2026-10-14")

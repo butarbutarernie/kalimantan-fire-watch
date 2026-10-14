@@ -7,3 +7,4 @@ folium>=0.16,<1
 streamlit-folium>=0.20,<1
 shapely>=2.0,<3
 scikit-learn>=1.4,<2
+scipy>=1.11,<2
