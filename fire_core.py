@@ -30,6 +30,7 @@ SATELLITE_SOURCES = {
     "S-NPP": "VIIRS_SNPP_NRT",
     "NOAA-20": "VIIRS_NOAA20_NRT",
     "NOAA-21": "VIIRS_NOAA21_NRT",
+    "MODIS Terra/Aqua": "MODIS_NRT",
 }
 PROVINCES = (
     "Kalimantan Barat", "Kalimantan Tengah", "Kalimantan Selatan",
@@ -154,17 +155,30 @@ def normalize_firms(raw: pd.DataFrame, now: datetime | None = None) -> tuple[pd.
     data = data.loc[valid].copy()
     if "source_name" not in data.columns:
         data["source_name"] = data.get("satellite", "Unknown")
-    raw_conf = data.get("confidence", pd.Series("?", index=data.index)).astype(str).str.strip().str.lower()
-    data["confidence_group"] = np.select(
-        [raw_conf.isin(["h", "high"]), raw_conf.isin(["n", "nominal"]), raw_conf.isin(["l", "low"])],
-        ["Tinggi", "Nominal", "Rendah"], default="Tidak tersedia")
-    data["confidence_raw"] = raw_conf
-    if "daynight" not in data.columns:
-        data["daynight"] = "?"
     if "satellite" not in data.columns:
         data["satellite"] = "?"
-    # Only remove exact copies of the same source record, never co-located different sensors.
-    subset = [c for c in ["latitude", "longitude", "acq_utc", "source_name", "frp", "confidence_raw"] if c in data]
+    data["satellite"] = data["satellite"].fillna("?").astype(str)
+    src = data["source_name"].fillna("Unknown").astype(str)
+    modis_mask = (src.str.contains("MODIS", case=False, regex=False) |
+                  data["satellite"].str.strip().str.lower().isin(["t", "a", "terra", "aqua"]))
+    data["source_family"] = np.where(modis_mask, "MODIS", "VIIRS")
+    raw_conf = data.get("confidence", pd.Series("?", index=data.index)).astype(str).str.strip().str.lower()
+    data["confidence_raw"] = raw_conf
+    data["modis_confidence_0_100"] = np.where(modis_mask, pd.to_numeric(raw_conf, errors="coerce"), np.nan)
+    modis_ok = pd.to_numeric(data["modis_confidence_0_100"], errors="coerce").between(0,100)
+    data.loc[modis_mask & ~modis_ok, "modis_confidence_0_100"] = np.nan
+    data["confidence_group"] = np.select(
+        [modis_mask, raw_conf.isin(["h", "high"]),
+         raw_conf.isin(["n", "nominal"]), raw_conf.isin(["l", "low"])],
+        ["MODIS numerik", "Tinggi", "Nominal", "Rendah"], default="Tidak tersedia")
+    data["platform"] = np.where(~modis_mask, src,
+          np.where(data["satellite"].str.strip().str.lower().isin(["t", "terra"]), "MODIS Terra",
+          np.where(data["satellite"].str.strip().str.lower().isin(["a", "aqua"]), "MODIS Aqua",
+                   "MODIS (platform belum jelas)")))
+    if "daynight" not in data.columns:
+        data["daynight"] = "?"
+    # Retain Terra versus Aqua even if the same approximate spatial/time centroid.
+    subset = [c for c in ["latitude", "longitude", "acq_utc", "source_name", "satellite", "frp", "confidence_raw"] if c in data]
     before = len(data)
     data = data.drop_duplicates(subset=subset).copy()
     now = now or datetime.now(timezone.utc)
@@ -172,6 +186,15 @@ def normalize_firms(raw: pd.DataFrame, now: datetime | None = None) -> tuple[pd.
         now = now.replace(tzinfo=timezone.utc)
     data["age_h"] = ((pd.Timestamp(now) - data["acq_utc"]).dt.total_seconds() / 3600).round(2)
     data = data.sort_values("acq_utc", ascending=False).reset_index(drop=True)
+    # Stable opaque per-record join key for optional Earth Engine WorldCover sampling.
+    # Generated only from observation attributes, without putting credentials in exports.
+    import hashlib
+    data["record_id"] = [hashlib.sha1(
+        f"{sn}|{sat}|{lat:.6f}|{lon:.6f}|{date.isoformat()}|{frp}|{conf}".encode("utf-8")
+    ).hexdigest()[:20] for sn, sat, lat, lon, date, frp, conf in zip(
+        data.source_name.astype(str), data.satellite.astype(str),
+        data.latitude.to_numpy(dtype=float), data.longitude.to_numpy(dtype=float),
+        data.acq_utc, data.frp.astype(str), data.confidence_raw.astype(str))]
     return data, {"raw_records": total, "invalid_or_missing": total - before,
                   "exact_duplicates": before - len(data), "valid_records": len(data)}
 
@@ -403,7 +426,7 @@ def cluster_detections(data: pd.DataFrame, eps_km: float = 2.0,
 
 
 def detections_geojson(data: pd.DataFrame, mode: str) -> str:
-    cols = [c for c in ("acq_utc", "province", "source_name", "confidence_group", "frp", "cluster_id") if c in data]
+    cols = [c for c in ("record_id", "acq_utc", "province", "source_name", "source_family", "platform", "confidence_group", "modis_confidence_0_100", "frp", "cluster_id", "peat_unit_status", "peat_landform", "peat_thickness_class", "worldcover_code", "worldcover_name") if c in data]
     feature_list = []
     for rec in data[["latitude", "longitude"] + cols].to_dict("records"):
         lat = rec.pop("latitude")
