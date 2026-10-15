@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#071826" />
+  <meta name="description" content="Dashboard interaktif untuk mengeksplorasi deteksi anomali termal NASA FIRMS (VIIRS/MODIS) di Kalimantan, dengan konteks batas desa, ESA WorldCover 2021, dan peta gambut." />
+  <meta name="robots" content="index,follow" />
+  <link rel="canonical" href="https://butarbutarernie.github.io/kalimantan-fire-watch/" />
+  <title>Kalimantan Fire Watch | Pantau Anomali Termal Satelit NASA FIRMS</title>
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="id_ID" />
+  <meta property="og:site_name" content="Kalimantan Fire Watch" />
+  <meta property="og:title" content="Kalimantan Fire Watch — Peta Anomali Termal NASA FIRMS" />
+  <meta property="og:description" content="Jelajahi titik deteksi VIIRS/MODIS, informasi desa, WorldCover 2021, dan peta gambut di Kalimantan. Untuk dukungan riset, bukan konfirmasi kebakaran." />
+  <meta property="og:url" content="https://butarbutarernie.github.io/kalimantan-fire-watch/" />
+  <meta property="og:image" content="https://butarbutarernie.github.io/kalimantan-fire-watch/og-kfw-1200x630.jpg" />
+  <meta property="og:image:secure_url" content="https://butarbutarernie.github.io/kalimantan-fire-watch/og-kfw-1200x630.jpg" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Kalimantan Fire Watch: peta OpenStreetMap Kalimantan dengan contoh titik deteksi anomali termal NASA FIRMS" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Kalimantan Fire Watch | NASA FIRMS" />
+  <meta name="twitter:description" content="Peta interaktif anomali termal satelit dan informasi desa di Kalimantan" />
+  <meta name="twitter:image" content="https://butarbutarernie.github.io/kalimantan-fire-watch/og-kfw-1200x630.jpg" />
+  <style>
+    :root{color-scheme:dark;--bg:#071826;--panel:#0e2736;--panel2:#123646;--text:#f4f8fa;--muted:#b5c8d1;--accent:#ff8448;--cyan:#55d6ca;--stroke:#315161}
+    *,*:before,*:after{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:linear-gradient(135deg,#071826 0%,#0d2534 60%,#113341 100%);font:16px/1.6 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:var(--text)}
+    a{color:inherit;text-decoration:none}
+    a:focus-visible{outline:3px solid var(--cyan);outline-offset:5px}
+    .container{width:min(1160px,calc(100% - 38px));margin:auto}
+    .nav{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 0;border-bottom:1px solid #264657}
+    .brand{font-weight:900;letter-spacing:.1px;font-size:1rem}.brand b{color:var(--accent)}
+    .brand-mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#ff974d,#d45633);display:inline-flex;align-items:center;justify-content:center;margin-right:9px;color:#091b2b;vertical-align:middle;font-size:23px}
+    .navlinks{display:flex;align-items:center;gap:24px;color:#c3d4da;font-weight:600;font-size:.9rem}
+    .smallbtn{border:1px solid #33716d;border-radius:999px;padding:9px 16px;color:var(--cyan);white-space:nowrap}
+    .hero{display:grid;grid-template-columns:1.01fr .99fr;align-items:center;gap:42px;padding:88px 0 70px}
+    .eyebrow{font-size:.78rem;letter-spacing:.17em;font-weight:800;color:var(--cyan);text-transform:uppercase}
+    h1{font-size:clamp(2.55rem,5vw,4.55rem);line-height:1.12;letter-spacing:-.035em;margin:22px 0 18px;font-weight:860}
+    h1 em{color:var(--accent);font-style:normal}
+    .lead{font-size:1.12rem;color:#c4d7df;max-width:570px;margin:0 0 30px}
+    .actions{display:flex;flex-wrap:wrap;gap:13px;align-items:center;margin:26px 0}
+    .primary{display:inline-flex;align-items:center;gap:9px;border-radius:12px;background:var(--accent);color:#102737;padding:14px 23px;font-weight:800;box-shadow:0 16px 36px #0003}
+    .secondary{display:inline-flex;align-items:center;gap:9px;border:1px solid #44677a;border-radius:12px;padding:13px 21px;color:#def0f2;font-weight:750}
+    .micro{font-size:.77rem;color:#b5c8d1;margin:8px 0 0}
+    .visual{background:linear-gradient(130deg,#1a5460,#142e3f);border-radius:24px;border:1px solid #3a6671;padding:12px;transform:translateY(4px);box-shadow:0 18px 50px #0006}
+    .visual img{display:block;width:100%;border-radius:14px;aspect-ratio:16/10;object-fit:cover}
+    .caption{padding:12px 5px 2px;font-size:.77rem;color:#c3d5dd}
+    .dots{display:flex;gap:10px;flex-wrap:wrap;margin-top:25px}
+    .tag{border:1px solid #3b6070;background:#163744;color:#c5ebed;border-radius:999px;padding:7px 13px;font-size:.8rem;font-weight:700}
+    h2{font-size:2rem;line-height:1.18;letter-spacing:-.02em;margin:0 0 10px}
+    .sub{color:#b8cbd4;margin:0 0 28px;max-width:760px}
+    section{padding:51px 0 18px}
+    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+    .feature{border:1px solid #315466;border-radius:18px;background:#102d3b;padding:25px;min-height:193px}
+    .feature .icon{font-size:1.9rem;line-height:1}
+    .feature h3{margin:13px 0 7px;font-size:1.04rem}
+    .feature p{margin:0;font-size:.91rem;color:#bdd0da}
+    .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .step{border-top:2px solid #3e7476;padding:20px 5px}.step strong{color:var(--accent);font-size:1.4rem;display:block}.step p{color:#bed2dc;margin:7px 0}
+    .notice{margin:42px 0 64px;padding:25px 27px;border:1px solid #486676;border-left:4px solid var(--accent);border-radius:14px;background:rgba(30,54,66,.65)}
+    .notice strong{font-size:1.05rem;color:#fff}.notice p{color:#c3d5dc;margin:10px 0 0}
+    footer{border-top:1px solid #2d4859;color:#a8bcc6;font-size:.85rem;padding:30px 0 55px}
+    .footerRow{display:flex;align-items:start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+    @media(max-width:850px){.hero{grid-template-columns:1fr;padding:53px 0 35px;gap:30px}.features,.steps{grid-template-columns:1fr}.navlinks>a:not(.smallbtn){display:none}.feature{min-height:auto}}
+    @media(max-width:480px){.container{width:min(100% - 30px,1160px)}.nav{padding:14px 0}.brand{font-size:.9rem}.brand-mark{width:29px;height:29px;margin-right:3px}.navlinks{gap:4px}.smallbtn{font-size:.77rem;padding:8px 11px}h1{font-size:2.68rem}.lead{font-size:1rem}.primary,.secondary{width:100%;justify-content:center}.hero{padding-top:42px}.feature{padding:20px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+<div class="container">
+  <nav class="nav" aria-label="Navigasi utama">
+    <a class="brand" href="#beranda"><span class="brand-mark" aria-hidden="true">✦</span> KALIMANTAN <b>FIRE WATCH</b></a>
+    <div class="navlinks"><a href="#fitur">Fitur</a><a href="#petunjuk">Cara pakai</a><a class="smallbtn" href="https://kalimantan-fire-watch.streamlit.app/" target="_blank" rel="noopener noreferrer">Buka peta ↗</a></div>
+  </nav>
+  <main id="beranda">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Riset &amp; pemantauan satelit • Indonesia</div>
+        <h1>Kenali titik <em>anomali termal</em> di Kalimantan.</h1>
+        <p class="lead">Jelajahi deteksi NASA FIRMS berdasarkan periode 1, 2, 3, 5, atau 7 hari. Klik titik untuk melihat waktu pengamatan, sensor, intensitas radiasi termal (FRP), dan nama desa pada lokasi yang tercakup peta administratif.</p>
+        <div class="actions"><a class="primary" href="https://kalimantan-fire-watch.streamlit.app/" target="_blank" rel="noopener noreferrer">Jelajahi dashboard interaktif ↗</a><a class="secondary" href="#fitur">Pelajari fitur ↓</a></div>
+        <p class="micro">Pengamatan mendekati waktu nyata, bergantung ketersediaan dan jeda publikasi NASA FIRMS.</p>
+        <div class="dots"><span class="tag">NASA FIRMS</span><span class="tag">VIIRS &amp; MODIS</span><span class="tag">5 Provinsi</span></div>
+      </div>
+      <figure class="visual">
+        <img src="dashboard-preview.jpg" width="1535" height="711" loading="eager" alt="Tangkapan layar aplikasi Kalimantan Fire Watch dengan titik anomali termal oranye di peta Kalimantan dan popup informasi Desa Tepian Makmur" />
+        <figcaption class="caption">Contoh tangkapan layar dashboard: 14 Oktober 2026. Gambar statis ini bukan data live. Dasar peta © OpenStreetMap contributors.</figcaption>
+      </figure>
+    </div>
+    <section id="fitur">
+      <h2>Informasi yang dapat Anda jelajahi</h2>
+      <p class="sub">Satu dashboard untuk meninjau deteksi satelit dan konteks spasial pendukung. Semua overlay dapat diaktifkan atau dinonaktifkan sesuai kebutuhan.</p>
+      <div class="features">
+        <article class="feature"><div class="icon" aria-hidden="true">🛰️</div><h3>Hotspot satelit</h3><p>Deteksi termal VIIRS dan MODIS melalui NASA FIRMS. Pilih 1, 2, 3, 5, atau 7 hari.</p></article>
+        <article class="feature"><div class="icon" aria-hidden="true">📍</div><h3>Informasi desa</h3><p>Klik titik deteksi untuk mengecek nama desa, kecamatan, kabupaten, dan provinsi bila data tersedia.</p></article>
+        <article class="feature"><div class="icon" aria-hidden="true">🗺️</div><h3>Kontrol layer</h3><p>Aktifkan batas provinsi, batas desa, dan peta dasar sesuai kebutuhan eksplorasi.</p></article>
+        <article class="feature"><div class="icon" aria-hidden="true">🌳</div><h3>ESA WorldCover 2021</h3><p>Referensi historis tutupan lahan 10 m; bukan kondisi tutupan lahan terkini.</p></article>
+        <article class="feature"><div class="icon" aria-hidden="true">🌿</div><h3>Konteks lahan gambut</h3><p>Layer peta gambut untuk melihat keterkaitan spasial, bukan bukti kebakaran gambut.</p></article>
+        <article class="feature"><div class="icon" aria-hidden="true">💻</div><h3>Akses dari HP atau laptop</h3><p>Dashboard dapat dibuka melalui browser tanpa memasang aplikasi khusus.</p></article>
+      </div>
+    </section>
+    <section id="petunjuk">
+      <h2>Mulai dalam tiga langkah</h2>
+      <p class="sub">Semua orang bisa membuka peta melalui tautan publik.</p>
+      <div class="steps">
+        <div class="step"><strong>01</strong><h3>Buka dashboard</h3><p>Tekan tombol Jelajahi Dashboard untuk memuat data dari layanan NASA FIRMS.</p></div>
+        <div class="step"><strong>02</strong><h3>Pilih periode &amp; layer</h3><p>Pilih hari pengamatan, lalu tampilkan WorldCover 2021, gambut, atau batas desa bila dibutuhkan.</p></div>
+        <div class="step"><strong>03</strong><h3>Klik deteksi satelit</h3><p>Lihat metadata pengamatan dan desa berdasarkan pencocokan spasial.</p></div>
+      </div>
+    </section>
+    <aside class="notice" aria-label="Keterbatasan dan catatan ilmiah">
+      <strong>Catatan ilmiah dan keselamatan</strong>
+      <p>Deteksi NASA FIRMS menunjukkan anomali termal, <b>bukan kepastian terjadinya kebakaran</b>, batas area terbakar, atau lokasi kebakaran pada skala desa yang telah terkonfirmasi. Perbedaan resolusi sensor dan ketidakpastian geolokasi harus diperhatikan. Dashboard mendukung eksplorasi dan riset, bukan pengganti verifikasi lapangan, sistem peringatan resmi, atau keputusan kedaruratan. Peta WorldCover merepresentasikan tahun 2021.</p>
+    </aside>
+  </main>
+  <footer class="footerRow">
+    <div><b>Kalimantan Fire Watch</b><div>Proyek dashboard riset independen; bukan sistem peringatan kebakaran resmi.</div></div>
+    <div>NASA FIRMS • ESA WorldCover 2021 • © OpenStreetMap contributors<br />Batas administrasi dan gambut: referensi pendukung; sumber dan izin pakai mengikuti data asal.</div>
+  </footer>
+</div>
+</body></html>
