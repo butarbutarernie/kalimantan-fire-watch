@@ -1,0 +1,21 @@
+{
+  "mode": "ARCHIVED_USER_UPLOADED_FIRMS_2026_10_14_0314",
+  "source_window_hours": 168,
+  "first_observation_utc": "2026-10-07T05:08:00+00:00",
+  "last_observation_utc": "2026-10-13T19:00:00+00:00",
+  "analysis_utc": "2026-10-14T03:14:55.956007+00:00",
+  "n_source_records": 75278,
+  "n_high_confidence": 2048,
+  "n_peat_centroid_records": 38040,
+  "n_1km_cells": 13151,
+  "n_candidate_cells": 426,
+  "n_candidate_with_peat_detections": 283,
+  "n_worldcover_1km_classified_cells": 11,
+  "grid_crs": "EPSG:6933",
+  "grid_size_m": 1000,
+  "candidate_rule": ">=3 unique UTC days AND >=2 unique VIIRS sensors AND >=1 high-confidence observation AND last observation within 72h of the 2026-10-14T03:14:55Z export analysis time",
+  "peat_meaning": "count of VIIRS centroids inside supplied 1:50,000 peat-soil map units; not an areal peat fraction nor measured peat fire",
+  "worldcover_meaning": "ESA WorldCover 2021 10m 11-class valid area fractions. Available for 12 1km pilot cells ONLY.",
+  "not_claimed": "Not realtime or continuously refreshing; not independent fire incidents; no validated fire risk ranking; no burned area",
+  "provenance": "NASA FIRMS ZIP uploaded by user; gambut overlays from source uploaded by user; WC 1km pilot uploaded by user"
+}
