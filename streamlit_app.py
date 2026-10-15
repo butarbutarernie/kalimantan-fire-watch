@@ -9,6 +9,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import logging
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from streamlit_folium import st_folium
 
 from nasa_live import (SOURCES,PROVINCES,DataUnavailable,fetch_nasa,normalize_nasa,
                        fetch_provinces,local_province_backup,assign_provinces)
-from village_lookup import annotate_villages,load_visual_geojson
+from village_lookup import annotate_villages,load_visual_geojson,inspect_village_assets
 from view_v14 import build_live_map
 
 BASE=Path(__file__).resolve().parent
@@ -104,6 +105,15 @@ with st.sidebar:
     st.caption('• WorldCover 2021 merupakan data historis, bukan kondisi 2026.')
     st.caption('• Satuan peta gambut tidak menunjukkan api gambut terkonfirmasi.')
     st.caption('• Nama desa berdasar batas pengguna; tanggal dan otoritas sumber perlu diverifikasi.')
+    st.caption('• Nama desa dibaca dari atribut NAMOBJ pada shapefile; nama kosong/undefined tidak ditebak.')
+    village_files=inspect_village_assets(DATA)
+    if village_files['ready_for_all_provinces']:
+        st.success('Referensi nama desa: 5/5 provinsi tersedia.')
+    else:
+        st.warning(f"Referensi desa: {village_files['found_count']}/5 file tersedia di GitHub.")
+        with st.expander('Daftar file desa yang perlu diunggah'):
+            st.code('\n'.join('data/'+name for name in village_files['missing_files']))
+            st.caption('Unggah isi ZIP ke folder data/ pada branch yang digunakan Streamlit, bukan ZIP-nya.')
 
 now=datetime.now(timezone.utc)
 shapes=None
@@ -121,6 +131,7 @@ key=nasa_key()
 records=pd.DataFrame()
 api_warnings=[]
 api_error=None
+village_exception=None
 if not key:
     api_error='MAP_KEY NASA belum terpasang dalam Streamlit Secrets (FIRMS_MAP_KEY).'
 elif not sensor:
@@ -139,11 +150,15 @@ else:
                     records=records[records.province.isin(selected)].copy()
                 try:
                     records=annotate_villages(records,DATA)
-                except Exception:
-                    # Village-data install errors must never hide NASA hotspot points.
+                except Exception as exc:
+                    # The NASA data must survive a village archive error.
+                    # Never log API URLs or the private NASA MAP_KEY.
+                    logging.getLogger(__name__).exception(
+                        'Unexpected village lookup failure (type=%s)', type(exc).__name__)
+                    village_exception=type(exc).__name__
                     for col in ['desa','kecamatan','kabupaten_desa','desa_kode_pum']:
                         records[col]=''
-                    records['desa_status']='Batas desa belum tersedia di server'
+                    records['desa_status']='Pencocokan desa gagal; lihat diagnostik di sidebar'
 
     except (DataUnavailable,ValueError,OSError) as exc:
         api_error=str(exc)
@@ -152,12 +167,20 @@ else:
         api_error='Terjadi masalah pemrosesan NASA FIRMS. Periksa log dan koneksi. Kredensial tidak ditampilkan.'
         records=pd.DataFrame()
 
+if village_exception:
+    notice('Nama desa belum dapat dihitung karena kesalahan pembacaan referensi. Buka <b>Kendali peta</b> untuk memeriksa data desa yang terpasang; catatan rinci ada di log Streamlit.', 'warning')
 if using_backup:
     notice('Batas provinsi saat ini memakai <b>cadangan hasil penggabungan shapefile desa</b>, bukan ADM1 resmi. Sebagian area tanpa poligon desa mungkin tidak tercakup.','warning')
 if shapes is None:
     notice('Batas provinsi belum dapat dimuat. Peta dasar akan tetap ditampilkan, tetapi verifikasi administratif titik api terbatas.','warning')
 if api_warnings:
     notice('Sebagian sumber NASA tidak merespons: '+str(len(api_warnings))+' permintaan. Statistik berasal dari data yang berhasil diterima.','warning')
+if not records.empty and 'desa_status' in records.columns:
+    village_failures=int(records['desa_status'].isin([
+        'Arsip batas desa gagal dibaca', 'Pencocokan koordinat desa gagal'
+    ]).sum())
+    if village_failures:
+        notice(f'<b>Perhatian:</b> {village_failures:,} rekaman NASA belum mendapatkan nama desa karena file atau operasi geometri gagal. Peta titik tetap tampil. Periksa unggahan <code>data/villages_lookup_*.npz</code> dan log Streamlit.', 'warning')
 if api_error:
     notice('<b>Deteksi NASA belum dapat ditampilkan.</b> '+api_error.replace('<','&lt;').replace('>','&gt;'),'error')
 else:
