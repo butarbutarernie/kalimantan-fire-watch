@@ -86,10 +86,10 @@ class TimeWindowLayers(MacroElement):
  function safe(s){return String(s===null||s===undefined?'—':s).replace(/[&<>"']/g,function(x){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x];});}
  function content(r){
    const v=villages[r[7]]||['','','','','Data desa tidak tersedia'];
-   const desc=(v[4]==='Ditemukan pada poligon desa' && v[0]) ? safe(v[0]) : safe(v[4]);
+   const desc=(v[4]==='Ditemukan pada poligon desa') ? safe(v[0]) : safe(v[4]);
    const admin=(v[4]==='Ditemukan pada poligon desa') ?
         `<div class="fire-sub">${safe(v[1])} · ${safe(v[2])} · ${safe(v[3])}</div>` :
-        `<div class="fire-sub">${safe(v[1])} · ${safe(v[2])} · ${safe(v[3])} · Nama desa tidak dapat dipastikan</div>`;
+        `<div class="fire-sub">Tidak dapat memastikan desa dari peta yang tersedia</div>`;
    return `<div class="kfw-pop"><div class="fire-pop-kicker">NASA FIRMS · Anomali Termal</div>`+
      `<div class="fire-pop-title">${desc||'Tidak tersedia'}</div>${admin}`+
      `<div class="fire-pop-grid"><b>Waktu</b><span>${safe(r[3])}</span>`+
@@ -146,10 +146,8 @@ def build_live_map(points:pd.DataFrame, provinces:dict, peat_geojson:dict|None=N
     # User chose a hotspot map (not 1 km screening polygons) as the main display.
     m=folium.Map(location=[-0.65,114.5],zoom_start=6,tiles=None,
                  control_scale=True,prefer_canvas=True)
-    # OpenStreetMap standard tiles: no CARTO API key or CARTO watermark.
-    # Folium supplies OpenStreetMap contributor attribution automatically.
-    folium.TileLayer(tiles='OpenStreetMap', name='OpenStreetMap',
-                     control=False, show=True).add_to(m)
+    folium.TileLayer(tiles='CartoDB positron',name='Peta dasar',control=False,
+                      attr='CartoDB / OpenStreetMap').add_to(m)
     borders={'type':'FeatureCollection','features':[
         {'type':'Feature','properties':{'provinsi':key},'geometry':mapping(poly)}
         for key,poly in provinces.items()]}
