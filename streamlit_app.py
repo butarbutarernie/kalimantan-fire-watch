@@ -10,6 +10,7 @@ import gzip
 import json
 import os
 import logging
+import hmac
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -22,10 +23,11 @@ from nasa_live import (SOURCES,PROVINCES,DataUnavailable,fetch_nasa,normalize_na
                        fetch_provinces,local_province_backup,assign_provinces)
 from village_lookup import annotate_villages,load_visual_geojson,inspect_village_assets
 from view_v14 import build_live_map
+from visitor_stats import register_one_session, get_statistics, AnalyticsUnavailable
 
 BASE=Path(__file__).resolve().parent
 DATA=BASE/'data'
-st.set_page_config(page_title='Kalimantan Fire Watch | Near-Real-Time',page_icon='🔥',layout='wide',initial_sidebar_state='expanded')
+st.set_page_config(page_title='Kalimantan Fire Watch | Near-Real-Time',page_icon='🔥',layout='wide',initial_sidebar_state='auto')
 
 st.markdown('''<style>
 html,body,[class*="css"]{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -69,6 +71,20 @@ def cached_village_visual(tuple_provs):
     return load_visual_geojson(DATA,list(tuple_provs))
 
 
+def _optional_secret(name):
+    """Read a server-side secret, without ever printing its value."""
+    try:
+        value = st.secrets.get(name, '')
+    except Exception:
+        value = ''
+    return str(value or os.environ.get(name, '')).strip()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_visits(redis_url, redis_token, days, utc_day):
+    return get_statistics(redis_url, redis_token, days=days)
+
+
 def nasa_key():
     try: val=st.secrets.get('FIRMS_MAP_KEY','')
     except Exception: val=''
@@ -82,6 +98,16 @@ def notice(text,kind='info'):
 def metric_box(label,value):
     return f'<div class="kfw-metric"><small>{label}</small><strong>{value}</strong></div>'
 
+# Optional, privacy-minimal visitor analytics. Never obstruct the NASA dashboard.
+_VISITS_URL = _optional_secret('UPSTASH_REDIS_REST_URL')
+_VISITS_TOKEN = _optional_secret('UPSTASH_REDIS_REST_TOKEN')
+try:
+    _VISITOR_HEADERS = st.context.headers
+    register_one_session(st.session_state, _VISITOR_HEADERS, _VISITS_URL, _VISITS_TOKEN)
+except Exception:
+    # A metrics outage must NEVER take the wildfire-monitoring map offline.
+    logging.getLogger(__name__).warning('Visitor statistics temporarily unavailable')
+
 st.markdown('''<div class="kfw-head">
  <div class="kicker">REMOTE SENSING · NEAR-REAL-TIME SITUATIONAL MONITORING</div>
  <div class="main-title">🔥 Kalimantan Fire Watch</div>
@@ -90,30 +116,92 @@ st.markdown('''<div class="kfw-head">
  </div>''',unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown('### <span style="color:#164c5e">Kendali peta</span>',unsafe_allow_html=True)
-    st.caption('Peta awal: hotspot 24 jam dan batas provinsi. Pilih jendela waktu dan layer lainnya dari menu Layers pada peta.')
-    selected=st.multiselect('Provinsi',PROVINCES,default=PROVINCES)
-    sensor=st.multiselect('Satelit NASA FIRMS',list(SOURCES),default=['S-NPP','NOAA-20','NOAA-21'])
-    show_village_overlay=st.checkbox('Siapkan layer batas desa (lebih berat)',value=False,
-          help='Nama desa dalam popup hotspot tetap tersedia meskipun overlay batas desa tidak diaktifkan.')
-    if st.button('↻ Perbarui NASA FIRMS',use_container_width=True):
-        cached_live.clear()
-        st.rerun()
-    st.divider()
-    st.caption('**Keterangan peta**')
-    st.caption('• Periode 1/2/3/5/7 hari adalah jendela waktu bergulir dari UTC saat pemuatan data. Pilih satu periode pada panel Layers.')
-    st.caption('• WorldCover 2021 merupakan data historis, bukan kondisi 2026.')
-    st.caption('• Satuan peta gambut tidak menunjukkan api gambut terkonfirmasi.')
-    st.caption('• Nama desa berdasar batas pengguna; tanggal dan otoritas sumber perlu diverifikasi.')
-    st.caption('• Nama desa dibaca dari atribut NAMOBJ pada shapefile; nama kosong/undefined tidak ditebak.')
-    village_files=inspect_village_assets(DATA)
-    if village_files['ready_for_all_provinces']:
-        st.success('Referensi nama desa: 5/5 provinsi tersedia.')
-    else:
-        st.warning(f"Referensi desa: {village_files['found_count']}/5 file tersedia di GitHub.")
-        with st.expander('Daftar file desa yang perlu diunggah'):
-            st.code('\n'.join('data/'+name for name in village_files['missing_files']))
-            st.caption('Unggah isi ZIP ke folder data/ pada branch yang digunakan Streamlit, bukan ZIP-nya.')
+    _menu = st.radio('Menu aplikasi', ['🗺️ Peta hotspot', '📊 Statistik pengunjung'],
+                     index=0, key='kfw_main_menu')
+    if _menu.startswith('🗺️'):
+        st.markdown('### <span style="color:#164c5e">Kendali peta</span>',unsafe_allow_html=True)
+        st.caption('Peta awal: hotspot 24 jam dan batas provinsi. Pilih jendela waktu dan layer lainnya dari menu Layers pada peta.')
+        selected=st.multiselect('Provinsi',PROVINCES,default=PROVINCES)
+        sensor=st.multiselect('Satelit NASA FIRMS',list(SOURCES),default=['S-NPP','NOAA-20','NOAA-21'])
+        show_village_overlay=st.checkbox('Siapkan layer batas desa (lebih berat)',value=False,
+              help='Nama desa dalam popup hotspot tetap tersedia meskipun overlay batas desa tidak diaktifkan.')
+        if st.button('↻ Perbarui NASA FIRMS',use_container_width=True):
+            cached_live.clear()
+            st.rerun()
+        st.divider()
+        st.caption('**Keterangan peta**')
+        st.caption('• Periode 1/2/3/5/7 hari adalah jendela waktu bergulir dari UTC saat pemuatan data. Pilih satu periode pada panel Layers.')
+        st.caption('• WorldCover 2021 merupakan data historis, bukan kondisi 2026.')
+        st.caption('• Satuan peta gambut tidak menunjukkan api gambut terkonfirmasi.')
+        st.caption('• Nama desa berdasar batas pengguna; tanggal dan otoritas sumber perlu diverifikasi.')
+        st.caption('• Nama desa dibaca dari atribut NAMOBJ pada shapefile; nama kosong/undefined tidak ditebak.')
+        village_files=inspect_village_assets(DATA)
+        if village_files['ready_for_all_provinces']:
+            st.success('Referensi nama desa: 5/5 provinsi tersedia.')
+        else:
+            st.warning(f"Referensi desa: {village_files['found_count']}/5 file tersedia di GitHub.")
+            with st.expander('Daftar file desa yang perlu diunggah'):
+                st.code('\n'.join('data/'+name for name in village_files['missing_files']))
+                st.caption('Unggah isi ZIP ke folder data/ pada branch yang digunakan Streamlit, bukan ZIP-nya.')
+
+if _menu.startswith('📊'):
+    st.subheader('📊 Statistik Pengunjung')
+    st.info('Data yang dihitung adalah **sesi kunjungan**, bukan jumlah orang unik. '
+            'Pengguna yang membuka aplikasi pada dua perangkat dihitung sebagai dua sesi. '
+            'Klasifikasi perangkat bersifat perkiraan.')
+    _admin_password = _optional_secret('VISITOR_STATS_PASSWORD')
+    if not _admin_password:
+        st.warning('Menu statistik belum diaktifkan. Pemilik aplikasi perlu menambahkan '
+                   '`VISITOR_STATS_PASSWORD` melalui Streamlit Cloud → App settings → Secrets.')
+        st.markdown('Sementara itu, statistik **pengunjung unik** sudah tersedia pada '
+                    '[Streamlit Community Cloud → Analytics](https://share.streamlit.io/).')
+        st.stop()
+    entered_password = st.text_input('Kata sandi pemilik dashboard', type='password',
+                                     key='kfw_visitor_admin_password')
+    if not hmac.compare_digest(entered_password.encode('utf-8'), _admin_password.encode('utf-8')):
+        if entered_password:
+            st.error('Kata sandi tidak sesuai.')
+        else:
+            st.caption('Statistik kunjungan hanya tersedia untuk pemilik dashboard.')
+        st.stop()
+    if not _VISITS_URL or not _VISITS_TOKEN:
+        st.warning('Database statistik belum terhubung. Siapkan Upstash Redis dan tambahkan '
+                   '`UPSTASH_REDIS_REST_URL` serta `UPSTASH_REDIS_REST_TOKEN` '
+                   'pada Streamlit Cloud Secrets. Dashboard NASA tetap berfungsi tanpa fitur ini.')
+        st.stop()
+    window = st.selectbox('Jangka waktu', [7, 14, 30, 90], index=2,
+                          format_func=lambda n: f'{n} hari terakhir')
+    try:
+        stats = _cached_visits(_VISITS_URL, _VISITS_TOKEN, window,
+                               datetime.now(timezone.utc).date().isoformat())
+    except AnalyticsUnavailable:
+        st.warning('Statistik sementara tidak dapat diakses. Coba kembali beberapa saat lagi.')
+        st.stop()
+    overall = stats['total_per_perangkat']
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric('Sesi sejak pencatatan', f"{stats['total_sejak_aktif']:,}")
+    c2.metric('Sesi dalam periode', f"{stats['periode_sesi']:,}")
+    c3.metric('Sesi hari ini (UTC)', f"{stats['hari_ini']:,}")
+    c4.metric('Sesi dari HP (sepanjang waktu)', f"{overall.get('HP',0):,}")
+    series = pd.DataFrame(stats['harian'])
+    st.markdown('#### Tren kunjungan harian')
+    st.bar_chart(series.set_index('tanggal_utc')['total_sesi'],
+                 use_container_width=True)
+    st.markdown('#### Perangkat yang digunakan (sejak pencatatan)')
+    device_df = pd.DataFrame([
+        {'Perangkat':device, 'Sesi':count} for device,count in overall.items()
+    ])
+    st.bar_chart(device_df.set_index('Perangkat')['Sesi'],
+                 use_container_width=True)
+    st.download_button('Unduh statistik harian (CSV)',
+                       series.to_csv(index=False).encode('utf-8'),
+                       file_name='KFW_Statistik_Sesi_Harian.csv',mime='text/csv')
+    st.caption('Periode harian mengikuti UTC. Tidak mengumpulkan alamat IP, koordinat, '
+               'identitas, atau User-Agent lengkap. Sesi didaftarkan sekali saat koneksi '
+               'Streamlit baru dibuka; reload/browser baru dapat tercatat sebagai sesi baru. '
+               'Preferensi Do Not Track/Global Privacy Control dihormati. '
+               'Angka pengunjung unik resmi dapat diperiksa di Streamlit Cloud Analytics.')
+    st.stop()
 
 now=datetime.now(timezone.utc)
 shapes=None
@@ -249,3 +337,5 @@ if len(records):
             file_name='Kalimantan_FireWatch_NASA_FIRMS_7d_Desa.csv',mime='text/csv')
 
 st.caption('Sumber: NASA FIRMS VIIRS/MODIS NRT; geoBoundaries (atau batas cadangan terlabel); ESA WorldCover 2021 v200, CC BY 4.0; peta gambut dan batas desa dari berkas pengguna. Pemantauan mendekati waktu nyata, bukan siaran langsung tanpa jeda.')
+if _VISITS_URL and _VISITS_TOKEN:
+    st.caption('Statistik penggunaan anonim: aplikasi menghitung jumlah sesi dan kategori perangkat secara agregat. Tidak menyimpan IP, identitas, atau lokasi pengunjung. Preferensi Do Not Track/Global Privacy Control dihormati.')
